@@ -10,6 +10,7 @@
     <link rel="manifest" href="./manifest.json">
     <title>F1 Strategist</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&display=swap');
         
@@ -48,7 +49,6 @@
         
         .result-flash { animation: flash-update 0.5s ease-out; }
 
-        /* Compound Colors */
         .comp-soft { color: #ff3333; }
         .comp-med { color: #ffcc00; }
         .comp-hard { color: #ffffff; }
@@ -114,7 +114,7 @@
                 </div>
             </div>
 
-            <div id="resultsCard" class="lg:col-span-1 card p-6 rounded-xl shadow-2xl">
+            <div id="resultsCard" class="lg:col-span-1 card p-6 rounded-xl shadow-2xl flex flex-col justify-center">
                 <h2 class="text-2xl font-bold mb-4 border-b border-gray-700 pb-2 text-white">Strategy Overview</h2>
                 <div class="space-y-4 text-center sm:text-left">
                     <div>
@@ -129,6 +129,13 @@
                         <p class="text-lg font-semibold text-gray-400">Recommended Strategy</p>
                         <p id="strategyHeadline" class="text-xl font-bold f1-text">--</p>
                     </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-3 card p-6 rounded-xl shadow-2xl">
+                <h2 class="text-2xl font-bold mb-4 border-b border-gray-700 pb-2 text-white">Tire Degradation Telemetry</h2>
+                <div class="w-full h-64 md:h-80 relative">
+                    <canvas id="tireChart"></canvas>
                 </div>
             </div>
 
@@ -152,10 +159,8 @@
 
 <script>
 // ===============================================================
-// F1 25 TRACK & TIRE DATA
+// F1 25 TRACK DATA
 // ===============================================================
-// Wear Level (1-5, 5 is highest degradation)
-// DF Level (1-5, 5 is Monaco/Max, 1 is Monza/Min)
 const TRACK_DATA = [
     { name: "Bahrain (Sakhir)", fullLaps: 57, wear: 5, df: 3, curbs: 3 },
     { name: "Saudi Arabia (Jeddah)", fullLaps: 50, wear: 2, df: 2, curbs: 2 },
@@ -199,55 +204,139 @@ const D = {
     resultsCard: document.getElementById('resultsCard')
 };
 
+let degradationChart = null;
+
 // ===============================================================
-// LOGIC
+// MATH ENGINE
 // ===============================================================
 
-function getTireLifespan(baseLaps, trackWear, styleMult, weather) {
-    if (weather !== 'dry') return baseLaps * 2; // Wet tires last a long time
-    // Wear factor: 1 = Low wear (longer life), 5 = High wear (shorter life)
-    const wearFactor = 1 - ((trackWear - 3) * 0.15); 
-    return Math.floor(baseLaps * wearFactor * styleMult);
+const CLIFF_FACTOR = 1.8; 
+const PIT_THRESHOLD_GRIP = 30; // 30% grip remaining is the target pit window
+
+function getEffectiveMaxLaps(baseMaxLaps, trackWear, style) {
+    const trackMult = 1.0 - ((trackWear - 3) * 0.15); 
+    let styleMult = 1.0;
+    if (style === 'aggressive') styleMult = 0.85;
+    if (style === 'saving') styleMult = 1.15;
+    return baseMaxLaps * trackMult * styleMult;
+}
+
+function calculateGripAtLap(lap, effectiveMaxLaps) {
+    if (lap >= effectiveMaxLaps) return 0;
+    const gripLoss = Math.pow(lap / effectiveMaxLaps, CLIFF_FACTOR) * 100;
+    return Math.max(0, 100 - gripLoss);
+}
+
+function getUsableLaps(baseMaxLaps, trackWear, style, weather) {
+    if (weather !== 'dry') return baseMaxLaps * 2; 
+    const effectiveMaxLaps = getEffectiveMaxLaps(baseMaxLaps, trackWear, style);
+    const targetGripLoss = (100 - PIT_THRESHOLD_GRIP) / 100;
+    const usableLaps = effectiveMaxLaps * Math.pow(targetGripLoss, 1 / CLIFF_FACTOR);
+    return Math.floor(usableLaps);
+}
+
+// ===============================================================
+// UI LOGIC
+// ===============================================================
+
+function updateChart(track, laps, isDry) {
+    const ctx = document.getElementById('tireChart').getContext('2d');
+    const distScale = parseFloat(D.raceDist.value);
+    
+    // Base 100% lifespans before modifiers
+    const baseSoft = 20 * distScale;
+    const baseMed = 32 * distScale;
+    const baseHard = 48 * distScale;
+
+    const effSoft = getEffectiveMaxLaps(baseSoft, track.wear, D.style.value);
+    const effMed = getEffectiveMaxLaps(baseMed, track.wear, D.style.value);
+    const effHard = getEffectiveMaxLaps(baseHard, track.wear, D.style.value);
+
+    const labels = Array.from({length: laps + 1}, (_, i) => i);
+    
+    const softData = labels.map(l => calculateGripAtLap(l, effSoft));
+    const medData = labels.map(l => calculateGripAtLap(l, effMed));
+    const hardData = labels.map(l => calculateGripAtLap(l, effHard));
+
+    if (degradationChart) {
+        degradationChart.destroy();
+    }
+
+    Chart.defaults.color = '#888';
+    Chart.defaults.font.family = "'Titillium Web', sans-serif";
+
+    const datasets = isDry ? [
+        { label: 'Soft', data: softData, borderColor: '#ff3333', backgroundColor: 'rgba(255, 51, 51, 0.1)', tension: 0.4, pointRadius: 0, fill: true },
+        { label: 'Medium', data: medData, borderColor: '#ffcc00', tension: 0.4, pointRadius: 0 },
+        { label: 'Hard', data: hardData, borderColor: '#ffffff', tension: 0.4, pointRadius: 0 },
+    ] : [
+        { label: D.weather.value === 'inter' ? 'Intermediate' : 'Wet', 
+          data: labels.map(l => calculateGripAtLap(l, effHard * 1.5)), 
+          borderColor: D.weather.value === 'inter' ? '#00cc66' : '#3399ff', tension: 0.4, pointRadius: 0 }
+    ];
+
+    degradationChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: labels, datasets: datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', titleFont: { size: 14 }, bodyFont: { size: 14, weight: 'bold' } },
+                annotation: {
+                    annotations: {
+                        line1: {
+                            type: 'line', yMin: PIT_THRESHOLD_GRIP, yMax: PIT_THRESHOLD_GRIP,
+                            borderColor: 'rgba(225, 6, 0, 0.5)', borderWidth: 2, borderDash: [5, 5],
+                            label: { content: 'Pit Window (30% Grip)', enabled: true, position: 'start', backgroundColor: 'rgba(225, 6, 0, 0.8)' }
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: { min: 0, max: 100, title: { display: true, text: 'Tire Grip %' }, grid: { color: '#333' } },
+                x: { title: { display: true, text: 'Laps' }, grid: { color: '#222' } }
+            }
+        },
+        plugins: [{
+            id: 'horizontalLine',
+            beforeDraw: (chart) => {
+                const { ctx, chartArea: { left, right }, scales: { y } } = chart;
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(left, y.getPixelForValue(PIT_THRESHOLD_GRIP));
+                ctx.lineTo(right, y.getPixelForValue(PIT_THRESHOLD_GRIP));
+                ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(225, 6, 0, 0.6)'; ctx.setLineDash([5, 5]); ctx.stroke();
+                ctx.restore();
+            }
+        }]
+    });
 }
 
 function computeStrategy() {
     const track = TRACK_DATA.find(t => t.name === D.track.value);
     if (!track) return;
 
-    // Determine Laps
     let laps = parseInt(D.manualLaps.value);
     if (isNaN(laps) || laps <= 0) {
         laps = Math.round(track.fullLaps * parseFloat(D.raceDist.value));
     }
     
-    // Style Multiplier
-    let styleMult = 1.0;
-    if (D.style.value === 'aggressive') styleMult = 0.85;
-    if (D.style.value === 'saving') styleMult = 1.15;
-
-    // Weather rules
     const isDry = D.weather.value === 'dry';
-    
-    // Base 100% Lifespans
-    const scale = laps / track.fullLaps; // Scale lifespan relative to total race length if needed, 
-    // actually in F1 games, tire wear scales with race distance.
-    // 50% race = tires wear 2x faster. 25% race = tires wear 4x faster.
-    // Therefore, absolute tire life in LAPS scales directly with race distance setting.
     const distScale = parseFloat(D.raceDist.value);
     
-    const maxLifeSoft = getTireLifespan(18 * distScale, track.wear, styleMult, D.weather.value);
-    const maxLifeMed = getTireLifespan(28 * distScale, track.wear, styleMult, D.weather.value);
-    const maxLifeHard = getTireLifespan(42 * distScale, track.wear, styleMult, D.weather.value);
+    const maxLifeSoft = getUsableLaps(20 * distScale, track.wear, D.style.value, D.weather.value);
+    const maxLifeMed = getUsableLaps(32 * distScale, track.wear, D.style.value, D.weather.value);
+    const maxLifeHard = getUsableLaps(48 * distScale, track.wear, D.style.value, D.weather.value);
 
     let stints = [];
     let strategyName = "";
 
     if (!isDry) {
-        // Wet weather logic (No mandatory stop rule, just one compound)
         const type = D.weather.value === 'inter' ? 'Inter' : 'Wet';
         const cssClass = type === 'Inter' ? 'comp-inter' : 'comp-wet';
         
-        if (laps > maxLifeHard) { // Arbitrary wet lifespan check
+        if (laps > maxLifeHard) { 
             const stopLap = Math.floor(laps/2);
             stints.push({ compound: type, css: cssClass, laps: stopLap, action: 'Start' });
             stints.push({ compound: type, css: cssClass, laps: laps - stopLap, action: 'Pit Lap ' + stopLap });
@@ -257,16 +346,12 @@ function computeStrategy() {
             strategyName = `0-Stop (${type} to End)`;
         }
     } else {
-        // DRY STRATEGY LOGIC (Must use 2 compounds if pitting)
-        // If race is less than 5 laps, 0 stop is allowed.
         if (laps <= 5) {
             stints.push({ compound: 'Soft', css: 'comp-soft', laps: laps, action: 'Sprint' });
             strategyName = "0-Stop Sprint";
         } else {
-            // Try 1 Stop Strategies
             const canSoftMed = (maxLifeSoft + maxLifeMed >= laps);
             const canMedHard = (maxLifeMed + maxLifeHard >= laps);
-            const canSoftHard = (maxLifeSoft + maxLifeHard >= laps);
 
             if (canSoftMed && D.style.value !== 'aggressive') {
                 const sLaps = Math.min(Math.floor(maxLifeSoft * 0.9), Math.floor(laps * 0.4));
@@ -281,7 +366,6 @@ function computeStrategy() {
                 strategyName = "1-Stop (Standard)";
             }
             else {
-                // 2 Stop Strategy Required
                 const firstStint = Math.floor(maxLifeSoft * 0.9);
                 const secondStint = Math.floor(maxLifeMed * 0.9);
                 const remaining = laps - firstStint - secondStint;
@@ -314,8 +398,8 @@ function computeStrategy() {
     `).join('');
 
     generateSetupAdvice(track);
+    updateChart(track, laps, isDry);
     
-    // Flash Animation
     D.resultsCard.classList.remove('result-flash');
     void D.resultsCard.offsetWidth;
     D.resultsCard.classList.add('result-flash');
@@ -324,27 +408,20 @@ function computeStrategy() {
 function generateSetupAdvice(track) {
     const isF1 = D.carClass.value === 'F1';
     
-    // Aero Scaling
-    // F1 25 likely uses 1-50 wings. F2 uses 1-11.
     const f1Aero = { 1: "15/12", 2: "22/18", 3: "32/28", 4: "40/36", 5: "50/47" };
     const f2Aero = { 1: "3/2", 2: "5/4", 3: "7/6", 4: "9/8", 5: "11/11" };
     
     const wings = isF1 ? f1Aero[track.df] : f2Aero[track.df];
-    
-    // Diff
     const diffOn = track.df > 3 ? "50%" : "55%";
     const diffOff = track.curbs > 3 ? "50%" : "55%";
 
-    // Suspension
-    // High DF tracks need stiffer suspension. High curbs need softer.
-    let suspStr = isF1 ? "41 / 10" : "8 / 2"; // Front / Rear
+    let suspStr = isF1 ? "41 / 10" : "8 / 2"; 
     let arbStr = isF1 ? "15 / 4" : "5 / 1";
     let rhStr = isF1 ? "34 / 37" : "3 / 4";
     
     if (track.df >= 4) { suspStr = isF1 ? "45 / 15" : "9 / 3"; rhStr = isF1 ? "33 / 36" : "2 / 3"; }
     if (track.curbs >= 4) { suspStr = isF1 ? "35 / 10" : "6 / 2"; rhStr = isF1 ? "36 / 39" : "4 / 5"; }
 
-    // Brakes
     const brakeBias = isF1 ? "54% - 56%" : "56% - 58%";
 
     const advice = [
@@ -367,14 +444,10 @@ function generateSetupAdvice(track) {
     `).join('');
 }
 
-// ===============================================================
-// INIT
-// ===============================================================
 function init() {
     TRACK_DATA.sort((a, b) => a.name.localeCompare(b.name))
         .forEach(t => D.track.add(new Option(t.name, t.name)));
     
-    // Event Listeners
     [D.track, D.carClass, D.raceDist, D.style, D.weather].forEach(el => {
         el.addEventListener('change', computeStrategy);
     });
