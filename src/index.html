@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="description" content="Race Strategy & Setup Engineering Assistant for EA SPORTS F1 25">
+    <link rel="icon" type="image/x-icon" href="./icon.ico">
+    <link rel="manifest" href="./manifest.json">
+    <title>F1 Strategist</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&display=swap');
+        
+        body { 
+            font-family: 'Titillium Web', sans-serif; 
+            background-color: #111111; 
+        }
+        
+        .card { 
+            background-color: #1a1a1a; 
+            border: 1px solid #333333; 
+        }
+        
+        .input-group input, .input-group select {
+            background-color: #222222; 
+            border: 1px solid #444444;
+            color: #eeeeee; 
+            transition: border-color 0.2s;
+        }
+        
+        .input-group input:focus, .input-group select:focus {
+            border-color: #e10600; 
+            outline: none;
+            box-shadow: 0 0 0 1px #e10600;
+        }
+        
+        .f1-text { color: #e10600; }
+        .f1-border { border-color: #e10600; }
+        .f1-bg { background-color: #e10600; }
+
+        @keyframes flash-update {
+            0% { box-shadow: 0 0 0 0 rgba(225, 6, 0, 0.5); }
+            50% { box-shadow: 0 0 15px 3px rgba(225, 6, 0, 0.3); }
+            100% { box-shadow: 0 0 0 0 rgba(225, 6, 0, 0); }
+        }
+        
+        .result-flash { animation: flash-update 0.5s ease-out; }
+
+        /* Compound Colors */
+        .comp-soft { color: #ff3333; }
+        .comp-med { color: #ffcc00; }
+        .comp-hard { color: #ffffff; }
+        .comp-inter { color: #00cc66; }
+        .comp-wet { color: #3399ff; }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen text-gray-200">
+    <div id="app" class="max-w-7xl mx-auto flex flex-col min-h-screen">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-black italic tracking-wider f1-text uppercase">F1 Strategist</h1>
+            <p class="text-gray-400 mt-1 font-semibold">Setup & Tire Engineering Assistant (F1 25)</p>
+        </header>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 grow">
+            <div class="lg:col-span-2 card p-6 rounded-xl shadow-2xl border-t-4 f1-border">
+                <h2 class="text-2xl font-bold mb-4 border-b border-gray-700 pb-2 text-white">Race Weekend Parameters</h2>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                    <div class="input-group">
+                        <label class="block text-sm font-semibold mb-1 text-gray-400">Track</label>
+                        <select id="track" class="w-full p-2 rounded-lg font-semibold"></select>
+                    </div>
+                    <div class="input-group">
+                        <label class="block text-sm font-semibold mb-1 text-gray-400">Class</label>
+                        <select id="carClass" class="w-full p-2 rounded-lg">
+                            <option value="F1">Formula 1</option>
+                            <option value="F2">Formula 2</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label class="block text-sm font-semibold mb-1 text-gray-400">Race Distance</label>
+                        <select id="raceDistance" class="w-full p-2 rounded-lg">
+                            <option value="0.25">25% (Sprint/Short)</option>
+                            <option value="0.35">35% (Medium)</option>
+                            <option value="0.5" selected>50% (Standard)</option>
+                            <option value="1.0">100% (Full)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
+                    <div class="input-group">
+                        <label class="block text-sm font-semibold mb-1 text-gray-400">Driving Style</label>
+                        <select id="drivingStyle" class="w-full p-2 rounded-lg">
+                            <option value="aggressive">Aggressive (High Pace, High Wear)</option>
+                            <option value="balanced" selected>Balanced (Standard)</option>
+                            <option value="saving">Tire Saving (Low Pace, Low Wear)</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label class="block text-sm font-semibold mb-1 text-gray-400">Weather</label>
+                        <select id="weather" class="w-full p-2 rounded-lg">
+                            <option value="dry">Dry</option>
+                            <option value="inter">Mixed / Light Rain (Inters)</option>
+                            <option value="wet">Heavy Rain (Wets)</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label class="block text-sm font-semibold mb-1 text-gray-400">Manual Laps (Overrides Dist)</label>
+                        <input type="number" id="manualLaps" class="w-full p-2 rounded-lg" placeholder="Auto">
+                    </div>
+                </div>
+            </div>
+
+            <div id="resultsCard" class="lg:col-span-1 card p-6 rounded-xl shadow-2xl">
+                <h2 class="text-2xl font-bold mb-4 border-b border-gray-700 pb-2 text-white">Strategy Overview</h2>
+                <div class="space-y-4 text-center sm:text-left">
+                    <div>
+                        <p class="text-lg font-semibold text-gray-400">Race Laps</p>
+                        <p id="totalLaps" class="text-3xl font-black text-white">--</p>
+                    </div>
+                    <div>
+                        <p class="text-lg font-semibold text-gray-400">Calculated Pit Stops</p>
+                        <p id="totalPits" class="text-3xl font-black text-white">--</p>
+                    </div>
+                    <div>
+                        <p class="text-lg font-semibold text-gray-400">Recommended Strategy</p>
+                        <p id="strategyHeadline" class="text-xl font-bold f1-text">--</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-3 card p-6 rounded-xl shadow-2xl border-l-4 border-l-yellow-500">
+                <h2 class="text-2xl font-bold mb-4 border-b border-gray-700 pb-2 text-white flex items-center">
+                    Tire & Pit Strategy
+                </h2>
+                <p class="text-sm text-gray-400 mb-4">Calculated based on track abrasiveness and your selected driving style. <span class="text-yellow-500">Must use 2 different dry compounds.</span></p>
+                <div id="stintsContainer" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+            </div>
+
+            <div class="lg:col-span-3 card p-6 rounded-xl shadow-2xl border-l-4 border-l-blue-500">
+                <h2 class="text-2xl font-bold mb-4 border-b border-gray-700 pb-2 text-white flex items-center">
+                    Engineer Setup Guide
+                </h2>
+                <p class="text-sm text-gray-400 mb-4">Baseline values for Time Trial and Race. Adjust aerodynamic balance based on driver preference.</p>
+                <div id="setupAdvice" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm"></div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ===============================================================
+// F1 25 TRACK & TIRE DATA
+// ===============================================================
+// Wear Level (1-5, 5 is highest degradation)
+// DF Level (1-5, 5 is Monaco/Max, 1 is Monza/Min)
+const TRACK_DATA = [
+    { name: "Bahrain (Sakhir)", fullLaps: 57, wear: 5, df: 3, curbs: 3 },
+    { name: "Saudi Arabia (Jeddah)", fullLaps: 50, wear: 2, df: 2, curbs: 2 },
+    { name: "Australia (Melbourne)", fullLaps: 58, wear: 3, df: 4, curbs: 4 },
+    { name: "Japan (Suzuka)", fullLaps: 53, wear: 4, df: 4, curbs: 3 },
+    { name: "China (Shanghai)", fullLaps: 56, wear: 4, df: 3, curbs: 2 },
+    { name: "Miami", fullLaps: 57, wear: 3, df: 3, curbs: 4 },
+    { name: "Imola", fullLaps: 63, wear: 3, df: 4, curbs: 5 },
+    { name: "Monaco", fullLaps: 78, wear: 1, df: 5, curbs: 4 },
+    { name: "Canada (Montreal)", fullLaps: 70, wear: 3, df: 2, curbs: 5 },
+    { name: "Spain (Barcelona)", fullLaps: 66, wear: 4, df: 4, curbs: 3 },
+    { name: "Austria (Red Bull Ring)", fullLaps: 71, wear: 3, df: 3, curbs: 5 },
+    { name: "Great Britain (Silverstone)", fullLaps: 52, wear: 4, df: 4, curbs: 2 },
+    { name: "Hungary (Hungaroring)", fullLaps: 70, wear: 3, df: 5, curbs: 4 },
+    { name: "Belgium (Spa)", fullLaps: 44, wear: 3, df: 1, curbs: 3 },
+    { name: "Netherlands (Zandvoort)", fullLaps: 72, wear: 4, df: 5, curbs: 3 },
+    { name: "Italy (Monza)", fullLaps: 53, wear: 2, df: 1, curbs: 5 },
+    { name: "Azerbaijan (Baku)", fullLaps: 51, wear: 2, df: 2, curbs: 2 },
+    { name: "Singapore", fullLaps: 62, wear: 3, df: 5, curbs: 4 },
+    { name: "USA (Austin)", fullLaps: 56, wear: 4, df: 4, curbs: 4 },
+    { name: "Mexico", fullLaps: 71, wear: 3, df: 5, curbs: 4 },
+    { name: "Brazil (Interlagos)", fullLaps: 71, wear: 3, df: 3, curbs: 3 },
+    { name: "Las Vegas", fullLaps: 50, wear: 2, df: 2, curbs: 2 },
+    { name: "Qatar (Lusail)", fullLaps: 57, wear: 5, df: 4, curbs: 3 },
+    { name: "Abu Dhabi (Yas Marina)", fullLaps: 58, wear: 3, df: 3, curbs: 3 }
+];
+
+// DOM Refs
+const D = {
+    track: document.getElementById('track'),
+    carClass: document.getElementById('carClass'),
+    raceDist: document.getElementById('raceDistance'),
+    style: document.getElementById('drivingStyle'),
+    weather: document.getElementById('weather'),
+    manualLaps: document.getElementById('manualLaps'),
+    totalLaps: document.getElementById('totalLaps'),
+    totalPits: document.getElementById('totalPits'),
+    strategyHeadline: document.getElementById('strategyHeadline'),
+    stintsContainer: document.getElementById('stintsContainer'),
+    setupAdvice: document.getElementById('setupAdvice'),
+    resultsCard: document.getElementById('resultsCard')
+};
+
+// ===============================================================
+// LOGIC
+// ===============================================================
+
+function getTireLifespan(baseLaps, trackWear, styleMult, weather) {
+    if (weather !== 'dry') return baseLaps * 2; // Wet tires last a long time
+    // Wear factor: 1 = Low wear (longer life), 5 = High wear (shorter life)
+    const wearFactor = 1 - ((trackWear - 3) * 0.15); 
+    return Math.floor(baseLaps * wearFactor * styleMult);
+}
+
+function computeStrategy() {
+    const track = TRACK_DATA.find(t => t.name === D.track.value);
+    if (!track) return;
+
+    // Determine Laps
+    let laps = parseInt(D.manualLaps.value);
+    if (isNaN(laps) || laps <= 0) {
+        laps = Math.round(track.fullLaps * parseFloat(D.raceDist.value));
+    }
+    
+    // Style Multiplier
+    let styleMult = 1.0;
+    if (D.style.value === 'aggressive') styleMult = 0.85;
+    if (D.style.value === 'saving') styleMult = 1.15;
+
+    // Weather rules
+    const isDry = D.weather.value === 'dry';
+    
+    // Base 100% Lifespans
+    const scale = laps / track.fullLaps; // Scale lifespan relative to total race length if needed, 
+    // actually in F1 games, tire wear scales with race distance.
+    // 50% race = tires wear 2x faster. 25% race = tires wear 4x faster.
+    // Therefore, absolute tire life in LAPS scales directly with race distance setting.
+    const distScale = parseFloat(D.raceDist.value);
+    
+    const maxLifeSoft = getTireLifespan(18 * distScale, track.wear, styleMult, D.weather.value);
+    const maxLifeMed = getTireLifespan(28 * distScale, track.wear, styleMult, D.weather.value);
+    const maxLifeHard = getTireLifespan(42 * distScale, track.wear, styleMult, D.weather.value);
+
+    let stints = [];
+    let strategyName = "";
+
+    if (!isDry) {
+        // Wet weather logic (No mandatory stop rule, just one compound)
+        const type = D.weather.value === 'inter' ? 'Inter' : 'Wet';
+        const cssClass = type === 'Inter' ? 'comp-inter' : 'comp-wet';
+        
+        if (laps > maxLifeHard) { // Arbitrary wet lifespan check
+            const stopLap = Math.floor(laps/2);
+            stints.push({ compound: type, css: cssClass, laps: stopLap, action: 'Start' });
+            stints.push({ compound: type, css: cssClass, laps: laps - stopLap, action: 'Pit Lap ' + stopLap });
+            strategyName = `1-Stop (${type})`;
+        } else {
+            stints.push({ compound: type, css: cssClass, laps: laps, action: 'Start' });
+            strategyName = `0-Stop (${type} to End)`;
+        }
+    } else {
+        // DRY STRATEGY LOGIC (Must use 2 compounds if pitting)
+        // If race is less than 5 laps, 0 stop is allowed.
+        if (laps <= 5) {
+            stints.push({ compound: 'Soft', css: 'comp-soft', laps: laps, action: 'Sprint' });
+            strategyName = "0-Stop Sprint";
+        } else {
+            // Try 1 Stop Strategies
+            const canSoftMed = (maxLifeSoft + maxLifeMed >= laps);
+            const canMedHard = (maxLifeMed + maxLifeHard >= laps);
+            const canSoftHard = (maxLifeSoft + maxLifeHard >= laps);
+
+            if (canSoftMed && D.style.value !== 'aggressive') {
+                const sLaps = Math.min(Math.floor(maxLifeSoft * 0.9), Math.floor(laps * 0.4));
+                stints.push({ compound: 'Medium', css: 'comp-med', laps: laps - sLaps, action: 'Start' });
+                stints.push({ compound: 'Soft', css: 'comp-soft', laps: sLaps, action: 'Pit Lap ' + (laps - sLaps) });
+                strategyName = "1-Stop (Aggressive)";
+            } 
+            else if (canMedHard) {
+                const mLaps = Math.min(Math.floor(maxLifeMed * 0.9), Math.floor(laps * 0.45));
+                stints.push({ compound: 'Medium', css: 'comp-med', laps: mLaps, action: 'Start' });
+                stints.push({ compound: 'Hard', css: 'comp-hard', laps: laps - mLaps, action: 'Pit Lap ' + mLaps });
+                strategyName = "1-Stop (Standard)";
+            }
+            else {
+                // 2 Stop Strategy Required
+                const firstStint = Math.floor(maxLifeSoft * 0.9);
+                const secondStint = Math.floor(maxLifeMed * 0.9);
+                const remaining = laps - firstStint - secondStint;
+
+                stints.push({ compound: 'Soft', css: 'comp-soft', laps: firstStint, action: 'Start' });
+                stints.push({ compound: 'Medium', css: 'comp-med', laps: secondStint, action: 'Pit Lap ' + firstStint });
+                
+                let thirdComp = 'Medium';
+                let thirdCss = 'comp-med';
+                if (remaining > maxLifeMed) { thirdComp = 'Hard'; thirdCss = 'comp-hard'; }
+                if (remaining <= maxLifeSoft) { thirdComp = 'Soft'; thirdCss = 'comp-soft'; }
+                
+                stints.push({ compound: thirdComp, css: thirdCss, laps: remaining, action: 'Pit Lap ' + (firstStint + secondStint) });
+                strategyName = "2-Stop (High Wear)";
+            }
+        }
+    }
+
+    // UPDATE UI
+    D.totalLaps.innerText = laps;
+    D.totalPits.innerText = stints.length > 0 ? stints.length - 1 : 0;
+    D.strategyHeadline.innerText = strategyName;
+
+    D.stintsContainer.innerHTML = stints.map((s, i) => `
+        <div class="p-4 rounded-lg bg-[#222222] border border-[#444444]">
+            <p class="text-sm text-gray-400 font-bold uppercase mb-1">${s.action}</p>
+            <p class="text-2xl font-black ${s.css}">${s.compound}</p>
+            <p class="text-sm mt-2 text-gray-300">${s.laps} Laps</p>
+        </div>
+    `).join('');
+
+    generateSetupAdvice(track);
+    
+    // Flash Animation
+    D.resultsCard.classList.remove('result-flash');
+    void D.resultsCard.offsetWidth;
+    D.resultsCard.classList.add('result-flash');
+}
+
+function generateSetupAdvice(track) {
+    const isF1 = D.carClass.value === 'F1';
+    
+    // Aero Scaling
+    // F1 25 likely uses 1-50 wings. F2 uses 1-11.
+    const f1Aero = { 1: "15/12", 2: "22/18", 3: "32/28", 4: "40/36", 5: "50/47" };
+    const f2Aero = { 1: "3/2", 2: "5/4", 3: "7/6", 4: "9/8", 5: "11/11" };
+    
+    const wings = isF1 ? f1Aero[track.df] : f2Aero[track.df];
+    
+    // Diff
+    const diffOn = track.df > 3 ? "50%" : "55%";
+    const diffOff = track.curbs > 3 ? "50%" : "55%";
+
+    // Suspension
+    // High DF tracks need stiffer suspension. High curbs need softer.
+    let suspStr = isF1 ? "41 / 10" : "8 / 2"; // Front / Rear
+    let arbStr = isF1 ? "15 / 4" : "5 / 1";
+    let rhStr = isF1 ? "34 / 37" : "3 / 4";
+    
+    if (track.df >= 4) { suspStr = isF1 ? "45 / 15" : "9 / 3"; rhStr = isF1 ? "33 / 36" : "2 / 3"; }
+    if (track.curbs >= 4) { suspStr = isF1 ? "35 / 10" : "6 / 2"; rhStr = isF1 ? "36 / 39" : "4 / 5"; }
+
+    // Brakes
+    const brakeBias = isF1 ? "54% - 56%" : "56% - 58%";
+
+    const advice = [
+        { title: "Aerodynamics (F/R)", val: wings, desc: "Downforce level " + track.df + "/5. Rear lower than front to reduce drag." },
+        { title: "Transmission (On/Off)", val: `${diffOn} / ${diffOff}`, desc: "Unlock for better rotation in slow corners." },
+        { title: "Suspension Geometry", val: "RRLL Meta", desc: "Right-Right-Left-Left (Max negative camber, minimum toe)." },
+        { title: "Suspension (F/R)", val: suspStr, desc: "Stiffness balanced against curb usage." },
+        { title: "Anti-Roll Bars (F/R)", val: arbStr, desc: "Stiff front for turn-in, soft rear for traction." },
+        { title: "Ride Height (F/R)", val: rhStr, desc: "As low as possible without bottoming out." },
+        { title: "Brakes", val: `100% / ${brakeBias}`, desc: "Max pressure. Shift rearwards to prevent front lockups." },
+        { title: "Tire Pressures", val: track.wear >= 4 ? "Maximum" : "Minimum", desc: track.wear >= 4 ? "High wear track: max pressures reduce carcass temps." : "Lower pressures for larger contact patch." }
+    ];
+
+    D.setupAdvice.innerHTML = advice.map(a => `
+        <div class="p-3 rounded bg-[#222] border border-[#333]">
+            <h4 class="text-gray-400 font-bold mb-1 text-xs uppercase tracking-wider">${a.title}</h4>
+            <p class="text-white text-lg font-black leading-tight mb-1">${a.val}</p>
+            <p class="text-gray-500 text-[10px] leading-tight">${a.desc}</p>
+        </div>
+    `).join('');
+}
+
+// ===============================================================
+// INIT
+// ===============================================================
+function init() {
+    TRACK_DATA.sort((a, b) => a.name.localeCompare(b.name))
+        .forEach(t => D.track.add(new Option(t.name, t.name)));
+    
+    // Event Listeners
+    [D.track, D.carClass, D.raceDist, D.style, D.weather].forEach(el => {
+        el.addEventListener('change', computeStrategy);
+    });
+    
+    D.manualLaps.addEventListener('input', computeStrategy);
+
+    computeStrategy();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
