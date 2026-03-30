@@ -9,7 +9,7 @@ const PRECACHE_URLS = [
     './',
     './index.html',
     './manifest.json',
-    './icon.ico',
+    './favicon.ico',
     './icon.png',
     './icon192.png'
 ];
