@@ -9,9 +9,9 @@ const PRECACHE_URLS = [
     './',
     './index.html',
     './manifest.json',
-    './favicon.ico',
-    './icon.png',
-    './icon192.png'
+    './images/favicon.ico',
+    './images/icon.png',
+    './images/icon192.png'
 ];
 
 const CDN_HOSTS = [
