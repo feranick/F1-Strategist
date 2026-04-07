@@ -122,7 +122,7 @@
                     </div>
                     <div class="input-group">
                         <label class="block text-sm font-semibold mb-1 text-gray-400">Manual Laps</label>
-                        <input type="number" id="manualLaps" class="w-full p-2 rounded-lg" placeholder="Auto">
+                        <input type="number" min="1" id="manualLaps" class="w-full p-2 rounded-lg" placeholder="Auto">
                     </div>
                 </div>
             </div>
@@ -178,7 +178,7 @@
 // ===============================================================
 // CONSTANTS & DATA
 // ===============================================================
-const APP_VERSION = '2026.04.06.1';
+const APP_VERSION = '2026.04.06.2';
 
 const TRACK_DATA = [
     { name: "Bahrain (Sakhir)", fullLaps: 57, wear: 5, df: 3, curbs: 3 },
@@ -231,7 +231,8 @@ const D = {
 };
 
 let degradationChart = null;
-const CLIFF_FACTOR = 1.8; 
+let isFirstRun = true;
+const CLIFF_FACTOR = 1.8;
 const PIT_THRESHOLD_GRIP = 30;
 
 // ===============================================================
@@ -253,7 +254,11 @@ function calculateGripAtLap(lap, effectiveMaxLaps) {
 }
 
 function getUsableLaps(baseMaxLaps, trackWear, style, weather) {
-    if (weather !== 'dry') return baseMaxLaps * 2; 
+    if (weather !== 'dry') {
+        const wetBase = 60;
+        const trackMult = 1.0 - ((trackWear - 3) * 0.08);
+        return Math.floor(wetBase * trackMult);
+    }
     const effectiveMaxLaps = getEffectiveMaxLaps(baseMaxLaps, trackWear, style);
     const targetGripLoss = (100 - PIT_THRESHOLD_GRIP) / 100;
     const usableLaps = effectiveMaxLaps * Math.pow(targetGripLoss, 1 / CLIFF_FACTOR);
@@ -266,11 +271,10 @@ function getUsableLaps(baseMaxLaps, trackWear, style, weather) {
 
 function updateChart(track, laps, isDry) {
     const ctx = document.getElementById('tireChart').getContext('2d');
-    const distScale = parseFloat(D.raceDist.value);
     
-    const baseSoft = 20 * distScale;
-    const baseMed = 32 * distScale;
-    const baseHard = 48 * distScale;
+    const baseSoft = 20;
+    const baseMed = 32;
+    const baseHard = 48;
 
     const effSoft = getEffectiveMaxLaps(baseSoft, track.wear, D.style.value);
     const effMed = getEffectiveMaxLaps(baseMed, track.wear, D.style.value);
@@ -289,14 +293,20 @@ function updateChart(track, laps, isDry) {
     Chart.defaults.color = '#888';
     Chart.defaults.font.family = "'Titillium Web', sans-serif";
 
+    const wetMaxLaps = 60 * (1.0 - ((track.wear - 3) * 0.08));
+
     const datasets = isDry ? [
         { label: 'Soft', data: softData, borderColor: '#ff3333', backgroundColor: 'rgba(255, 51, 51, 0.1)', tension: 0.4, pointRadius: 0, fill: true },
         { label: 'Medium', data: medData, borderColor: '#ffcc00', tension: 0.4, pointRadius: 0 },
         { label: 'Hard', data: hardData, borderColor: '#ffffff', tension: 0.4, pointRadius: 0 },
     ] : [
-        { label: D.weather.value === 'inter' ? 'Intermediate' : 'Wet', 
-          data: labels.map(l => calculateGripAtLap(l, effHard * 1.5)), 
-          borderColor: D.weather.value === 'inter' ? '#00cc66' : '#3399ff', tension: 0.4, pointRadius: 0 }
+        {
+            label: D.weather.value === 'inter' ? 'Intermediate' : 'Wet',
+            data: labels.map(l => calculateGripAtLap(l, wetMaxLaps)),
+            borderColor: D.weather.value === 'inter' ? '#00cc66' : '#3399ff',
+            tension: 0.4,
+            pointRadius: 0
+        }
     ];
 
     degradationChart = new Chart(ctx, {
@@ -306,16 +316,7 @@ function updateChart(track, laps, isDry) {
             responsive: true, maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
             plugins: {
-                tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', titleFont: { size: 14 }, bodyFont: { size: 14, weight: 'bold' } },
-                annotation: {
-                    annotations: {
-                        line1: {
-                            type: 'line', yMin: PIT_THRESHOLD_GRIP, yMax: PIT_THRESHOLD_GRIP,
-                            borderColor: 'rgba(225, 6, 0, 0.5)', borderWidth: 2, borderDash: [5, 5],
-                            label: { content: 'Pit Window', enabled: true, position: 'start', backgroundColor: 'rgba(225, 6, 0, 0.8)' }
-                        }
-                    }
-                }
+                tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', titleFont: { size: 14 }, bodyFont: { size: 14, weight: 'bold' } }
             },
             scales: {
                 y: { min: 0, max: 100, title: { display: true, text: 'Tire Grip %' }, grid: { color: '#333' } },
@@ -348,6 +349,7 @@ function computeStrategy() {
     D.raceDist.disabled = isQuali;
     D.style.disabled = isQuali;
     D.manualLaps.disabled = isQuali;
+    D.raceDist.title = isQuali ? "Not applicable in Qualifying" : "";
 
     if (isQuali) {
         D.chartCard.style.display = 'none';
@@ -377,17 +379,20 @@ function computeStrategy() {
         D.lapsLabel.innerText = "Race Laps";
         D.pitsLabel.innerText = "Calculated Pit Stops";
         D.stintsHeader.innerText = "Tire & Pit Strategy";
-        D.stintsSubtext.innerHTML = `Calculated based on track abrasiveness and your selected driving style. <span class="text-yellow-500">Must use 2 different dry compounds.</span>`;
+        const ruleNote = isDry
+        ? '<span class="text-yellow-500">Must use 2 different dry compounds.</span>'
+        : '<span class="text-blue-400">Dry compound rule waived in wet conditions.</span>';
+
+        D.stintsSubtext.innerHTML = `Calculated based on track abrasiveness and your selected driving style. ${ruleNote}`;
 
         let laps = parseInt(D.manualLaps.value);
         if (isNaN(laps) || laps <= 0) {
             laps = Math.round(track.fullLaps * parseFloat(D.raceDist.value));
         }
         
-        const distScale = parseFloat(D.raceDist.value);
-        const maxLifeSoft = getUsableLaps(20 * distScale, track.wear, D.style.value, D.weather.value);
-        const maxLifeMed = getUsableLaps(32 * distScale, track.wear, D.style.value, D.weather.value);
-        const maxLifeHard = getUsableLaps(48 * distScale, track.wear, D.style.value, D.weather.value);
+        const maxLifeSoft = getUsableLaps(20, track.wear, D.style.value, D.weather.value);
+        const maxLifeMed = getUsableLaps(32, track.wear, D.style.value, D.weather.value);
+        const maxLifeHard = getUsableLaps(48, track.wear, D.style.value, D.weather.value);
 
         let stints = [];
         let strategyName = "";
@@ -395,9 +400,12 @@ function computeStrategy() {
         if (!isDry) {
             const type = D.weather.value === 'inter' ? 'Inter' : 'Wet';
             const cssClass = type === 'Inter' ? 'comp-inter' : 'comp-wet';
-            
-            if (laps > maxLifeHard) { 
-                const stopLap = Math.floor(laps/2);
+    
+            // Single compound — compute one life value
+            const wetLife = getUsableLaps(0, track.wear, D.style.value, D.weather.value);
+    
+            if (laps > wetLife) {
+                const stopLap = Math.floor(laps / 2);
                 stints.push({ compound: type, css: cssClass, laps: stopLap, action: 'Start' });
                 stints.push({ compound: type, css: cssClass, laps: laps - stopLap, action: 'Pit Lap ' + stopLap });
                 strategyName = `1-Stop (${type})`;
@@ -406,41 +414,57 @@ function computeStrategy() {
                 strategyName = `0-Stop (${type} to End)`;
             }
         } else {
-            if (laps <= 5) {
-                stints.push({ compound: 'Soft', css: 'comp-soft', laps: laps, action: 'Sprint' });
-                strategyName = "0-Stop Sprint";
-            } else {
-                const canSoftMed = (maxLifeSoft + maxLifeMed >= laps);
-                const canMedHard = (maxLifeMed + maxLifeHard >= laps);
+            const canSoftMed  = (maxLifeSoft + maxLifeMed  >= laps);
+            const canMedHard  = (maxLifeMed  + maxLifeHard >= laps);
+            const canSoftHard = (maxLifeSoft + maxLifeHard >= laps);
 
-                if (canSoftMed && D.style.value !== 'aggressive') {
-                    const sLaps = Math.min(Math.floor(maxLifeSoft * 0.9), Math.floor(laps * 0.4));
-                    stints.push({ compound: 'Medium', css: 'comp-med', laps: laps - sLaps, action: 'Start' });
-                    stints.push({ compound: 'Soft', css: 'comp-soft', laps: sLaps, action: 'Pit Lap ' + (laps - sLaps) });
-                    strategyName = "1-Stop (Aggressive)";
-                } 
-                else if (canMedHard) {
-                    const mLaps = Math.min(Math.floor(maxLifeMed * 0.9), Math.floor(laps * 0.45));
-                    stints.push({ compound: 'Medium', css: 'comp-med', laps: mLaps, action: 'Start' });
-                    stints.push({ compound: 'Hard', css: 'comp-hard', laps: laps - mLaps, action: 'Pit Lap ' + mLaps });
-                    strategyName = "1-Stop (Standard)";
-                }
-                else {
-                    const firstStint = Math.floor(maxLifeSoft * 0.9);
-                    const secondStint = Math.floor(maxLifeMed * 0.9);
-                    const remaining = laps - firstStint - secondStint;
+            if (canMedHard) {
+                // STANDARD: Longer first stint on Mediums, finish on Hards
+                // This is the "safe" baseline strategy
+                const mLaps = Math.min(
+                    Math.floor(maxLifeMed * 0.9),
+                    Math.ceil(laps * 0.5)  // aim for roughly even split
+                );
+                stints.push({ compound: 'Medium', css: 'comp-med', laps: mLaps, action: 'Start' });
+                stints.push({ compound: 'Hard', css: 'comp-hard', laps: laps - mLaps, action: 'Pit Lap ' + mLaps });
+                strategyName = "1-Stop (Standard: M→H)";
+            }
+            else if (canSoftHard) {
+                // AGGRESSIVE: Start on Softs for early pace, long Hard stint to finish
+                const sLaps = Math.min(
+                    Math.floor(maxLifeSoft * 0.9),
+                    Math.floor(laps * 0.35)
+                );
+                stints.push({ compound: 'Soft', css: 'comp-soft', laps: sLaps, action: 'Start' });
+                stints.push({ compound: 'Hard', css: 'comp-hard', laps: laps - sLaps, action: 'Pit Lap ' + sLaps });
+                strategyName = "1-Stop (Aggressive: S→H)";
+            }
+            else if (canSoftMed) {
+                // OVERCUT: Start Mediums, finish on Softs for a fast final stint
+                const sLaps = Math.min(
+                    Math.floor(maxLifeSoft * 0.9),
+                    Math.floor(laps * 0.4)
+                );
+                stints.push({ compound: 'Medium', css: 'comp-med', laps: laps - sLaps, action: 'Start' });
+                stints.push({ compound: 'Soft', css: 'comp-soft', laps: sLaps, action: 'Pit Lap ' + (laps - sLaps) });
+                strategyName = "1-Stop (Overcut: M→S)";
+            }
+            else {
+                // 2-STOP: Tires can't cover the distance in one stop
+                const firstStint  = Math.min(Math.floor(maxLifeSoft * 0.9), Math.floor(laps * 0.30));
+                const secondStint = Math.min(Math.floor(maxLifeMed  * 0.9), Math.floor(laps * 0.40));
+                const remaining   = Math.max(1, laps - firstStint - secondStint);
 
-                    stints.push({ compound: 'Soft', css: 'comp-soft', laps: firstStint, action: 'Start' });
-                    stints.push({ compound: 'Medium', css: 'comp-med', laps: secondStint, action: 'Pit Lap ' + firstStint });
-                    
-                    let thirdComp = 'Medium';
-                    let thirdCss = 'comp-med';
-                    if (remaining > maxLifeMed) { thirdComp = 'Hard'; thirdCss = 'comp-hard'; }
-                    if (remaining <= maxLifeSoft) { thirdComp = 'Soft'; thirdCss = 'comp-soft'; }
-                    
-                    stints.push({ compound: thirdComp, css: thirdCss, laps: remaining, action: 'Pit Lap ' + (firstStint + secondStint) });
-                    strategyName = "2-Stop (High Wear)";
-                }
+                stints.push({ compound: 'Soft',   css: 'comp-soft', laps: firstStint,  action: 'Start' });
+                stints.push({ compound: 'Medium', css: 'comp-med',  laps: secondStint, action: 'Pit Lap ' + firstStint });
+
+                let thirdComp = 'Hard';
+                let thirdCss  = 'comp-hard';
+                if (remaining <= maxLifeMed)  { thirdComp = 'Medium'; thirdCss = 'comp-med'; }
+                if (remaining <= maxLifeSoft) { thirdComp = 'Soft';   thirdCss = 'comp-soft'; }
+
+                stints.push({ compound: thirdComp, css: thirdCss, laps: remaining, action: 'Pit Lap ' + (firstStint + secondStint) });
+                strategyName = "2-Stop (High Wear: S→M→" + thirdComp.charAt(0) + ")";
             }
         }
 
@@ -461,9 +485,12 @@ function computeStrategy() {
 
     generateSetupAdvice(track, isQuali);
     
-    D.resultsCard.classList.remove('result-flash');
-    void D.resultsCard.offsetWidth;
-    D.resultsCard.classList.add('result-flash');
+    if (!isFirstRun) {
+        D.resultsCard.classList.remove('result-flash');
+        void D.resultsCard.offsetWidth;
+        D.resultsCard.classList.add('result-flash');
+    }
+    isFirstRun = false;
 }
 
 function generateSetupAdvice(track, isQuali) {
@@ -519,15 +546,23 @@ function generateSetupAdvice(track, isQuali) {
 
 function init() {
     D.footerVersion.textContent = 'v' + APP_VERSION;
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js?v=' + APP_VERSION);
+    }
 
-    TRACK_DATA.sort((a, b) => a.name.localeCompare(b.name))
+    [...TRACK_DATA]
+        .sort((a, b) => a.name.localeCompare(b.name))
         .forEach(t => D.track.add(new Option(t.name, t.name)));
     
     [D.track, D.carClass, D.sessionType, D.raceDist, D.style, D.weather].forEach(el => {
         el.addEventListener('change', computeStrategy);
     });
     
-    D.manualLaps.addEventListener('input', computeStrategy);
+    let debounceTimer;
+        D.manualLaps.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(computeStrategy, 300);
+    });
 
     computeStrategy();
 }
