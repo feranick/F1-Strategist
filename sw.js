@@ -2,20 +2,28 @@
 // F1 Strategist — Service Worker
 // ═══════════════════════════════════════════════════════════
 
-const APP_VER = new URL(self.location).searchParams.get('v') || '1.0';
+const APP_VER = new URL(self.location.href).searchParams.get('v') || '1.0';
 const CACHE_VERSION = 'f1-strategist-v' + APP_VER;
 
-const PRECACHE_URLS = [
+// Core files: install fails if these can't be cached (they must exist).
+const PRECACHE_CORE = [
     './',
     './index.html',
-    './manifest.json',
+    './manifest.json'
+];
+
+// Best-effort: a missing icon should not break the entire install.
+const PRECACHE_OPTIONAL = [
     './images/favicon.ico',
     './images/icon.png',
     './images/icon192.png'
 ];
 
+// All third-party hosts the app loads from (must include every CDN
+// referenced in index.html, or those assets won't work offline).
 const CDN_HOSTS = [
     'cdn.tailwindcss.com',
+    'cdn.jsdelivr.net',
     'fonts.googleapis.com',
     'fonts.gstatic.com'
 ];
@@ -23,8 +31,12 @@ const CDN_HOSTS = [
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_VERSION)
-            .then(cache => cache.addAll(PRECACHE_URLS))
-            .then(() => self.skipWaiting()) 
+            .then(cache =>
+                cache.addAll(PRECACHE_CORE).then(() =>
+                    Promise.allSettled(PRECACHE_OPTIONAL.map(url => cache.add(url)))
+                )
+            )
+            .then(() => self.skipWaiting())
     );
 });
 
@@ -44,7 +56,7 @@ self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
     if (event.request.method !== 'GET' || !url.protocol.startsWith('http')) return;
 
-    if (CDN_HOSTS.some(host => url.hostname.includes(host))) {
+    if (CDN_HOSTS.some(host => url.hostname === host || url.hostname.endsWith('.' + host))) {
         event.respondWith(staleWhileRevalidate(event.request));
         return;
     }
@@ -66,6 +78,11 @@ async function cacheFirst(request) {
         }
         return response;
     } catch (err) {
+        // For navigations, fall back to the cached app shell.
+        if (request.mode === 'navigate') {
+            const shell = await caches.match('./index.html');
+            if (shell) return shell;
+        }
         return new Response('Offline', { status: 503 });
     }
 }
@@ -78,6 +95,6 @@ async function staleWhileRevalidate(request) {
             if (response.ok) cache.put(request, response.clone());
             return response;
         })
-        .catch(() => cached); 
+        .catch(() => cached || new Response('Offline', { status: 503 }));
     return cached || fetchPromise;
 }

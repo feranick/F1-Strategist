@@ -1,4 +1,5 @@
 {
+    "id": "./",
     "name": "F1 Strategist",
     "short_name": "F1 Strat",
     "description": "Race Strategy & Setup Engineering Assistant for F1 25",
@@ -14,6 +15,12 @@
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "any"
+        },
+        {
+            "src": "./images/icon.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
         },
         {
             "src": "./images/icon192.png",
