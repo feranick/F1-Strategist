@@ -181,7 +181,7 @@
 // ===============================================================
 // CONSTANTS & DATA
 // ===============================================================
-const APP_VERSION = '2026.06.09.1';
+const APP_VERSION = '2026.06.29.1';
 
 // Lap counts are official F1 Grand Prix race distances (2025 calendar).
 // wear / df / curbs are 1-5 ratings (5 = highest).
@@ -217,6 +217,10 @@ const TRACK_DATA = [
 const TIRE_BASE = { soft: 20, med: 32, hard: 48 };
 const WET_BASE_LAPS = 60;
 const MAX_MANUAL_LAPS = 200;
+
+// Compound -> CSS class. Single source of truth, used by both the
+// strategy stints (makeStint) and the qualifying run plan.
+const COMPOUND_CSS = { Soft: 'comp-soft', Medium: 'comp-med', Hard: 'comp-hard', Inter: 'comp-inter', Wet: 'comp-wet' };
 
 const CLIFF_FACTOR = 1.8;
 const PIT_THRESHOLD_GRIP = 30; // % grip at which a stop is recommended
@@ -307,8 +311,7 @@ function planOneStop(laps, lifeA, lifeB, prefSplit) {
 }
 
 function makeStint(compound, laps, action) {
-    const cssMap = { Soft: 'comp-soft', Medium: 'comp-med', Hard: 'comp-hard', Inter: 'comp-inter', Wet: 'comp-wet' };
-    return { compound, css: cssMap[compound], laps, action };
+    return { compound, css: COMPOUND_CSS[compound], laps, action };
 }
 
 function planDryStrategy(laps, lifeS, lifeM, lifeH) {
@@ -503,7 +506,7 @@ function computeStrategy() {
         D.stintsSubtext.innerHTML = "Standard Qualifying protocol. Avoid scrubbing tires on outlaps.";
 
         const type = isDry ? 'Soft' : (D.weather.value === 'inter' ? 'Inter' : 'Wet');
-        const cssClass = isDry ? 'comp-soft' : (D.weather.value === 'inter' ? 'comp-inter' : 'comp-wet');
+        const cssClass = COMPOUND_CSS[type];
 
         D.stintsContainer.innerHTML = [1, 2, 3].map(run => `
             <div class="p-4 rounded-lg bg-[#222222] border border-[#444444]">
